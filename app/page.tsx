@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { HeartPulse } from "lucide-react";
 import Dashboard from "./components/Dashboard";
 
@@ -18,7 +19,9 @@ export default function Home() {
         </div>
       </header>
       <main id="dashboard">
-        <Dashboard />
+        <Suspense>
+          <Dashboard />
+        </Suspense>
       </main>
     </div>
   );

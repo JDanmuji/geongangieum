@@ -3,7 +3,10 @@
 import { useEffect } from "react";
 import L from "leaflet";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
+import MarkerClusterGroup from "react-leaflet-cluster";
 import "leaflet/dist/leaflet.css";
+import "react-leaflet-cluster/dist/assets/MarkerCluster.css";
+import "react-leaflet-cluster/dist/assets/MarkerCluster.Default.css";
 
 export type MapHospital = {
   yadmNm?: string;
@@ -128,30 +131,38 @@ export default function HospitalMap({
         />
         <CenterUpdater center={center} zoom={zoom} />
 
-        {valid.map(h => {
-          const lat = parseFloat(h.YPos!);
-          const lng = parseFloat(h.XPos!);
-          const color = typeColor(h.clCdNm);
-          const drCnt = Number(h.drTotCnt ?? 0);
-          const size = drCnt > 200 ? 36 : drCnt > 50 ? 30 : drCnt > 10 ? 26 : 22;
+        <MarkerClusterGroup
+          chunkedLoading
+          maxClusterRadius={40}
+          spiderfyOnMaxZoom={true}
+          showCoverageOnHover={false}
+          disableClusteringAtZoom={14}
+        >
+          {valid.map(h => {
+            const lat = parseFloat(h.YPos!);
+            const lng = parseFloat(h.XPos!);
+            const color = typeColor(h.clCdNm);
+            const drCnt = Number(h.drTotCnt ?? 0);
+            const size = drCnt > 200 ? 36 : drCnt > 50 ? 30 : drCnt > 10 ? 26 : 22;
 
-          return (
-            <Marker
-              key={h.ykiho ?? `${lat}-${lng}`}
-              position={[lat, lng]}
-              icon={makeDoctorIcon(size, color)}
-              eventHandlers={{ click: () => onSelect(h) }}
-            >
-              <Popup>
-                <strong style={{ fontSize: 13 }}>{h.yadmNm}</strong>
-                <br />
-                <span style={{ fontSize: 12, color: "#666" }}>
-                  {typeLabel(h.clCdNm)} · 의사 {drCnt.toLocaleString()}명
-                </span>
-              </Popup>
-            </Marker>
-          );
-        })}
+            return (
+              <Marker
+                key={h.ykiho ?? `${lat}-${lng}`}
+                position={[lat, lng]}
+                icon={makeDoctorIcon(size, color)}
+                eventHandlers={{ click: () => onSelect(h) }}
+              >
+                <Popup>
+                  <strong style={{ fontSize: 13 }}>{h.yadmNm}</strong>
+                  <br />
+                  <span style={{ fontSize: 12, color: "#666" }}>
+                    {typeLabel(h.clCdNm)} · 의사 {drCnt.toLocaleString()}명
+                  </span>
+                </Popup>
+              </Marker>
+            );
+          })}
+        </MarkerClusterGroup>
       </MapContainer>
 
       {/* 범례 */}

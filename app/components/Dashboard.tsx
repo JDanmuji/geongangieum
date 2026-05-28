@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { Bot, Building2, HeartPulse, LocateFixed, Search, Send, Stethoscope, X } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Activity, Bot, Building2, HeartPulse, LocateFixed, MapPin, Search, Send, Stethoscope, X } from "lucide-react";
 import { sgguMap } from "@/lib/sggu";
 import { topDiseases } from "@/lib/disease";
 import HospitalModal from "@/app/components/HospitalModal";
+import OnboardingModal, { type OnboardResult } from "@/app/components/OnboardingModal";
 
 const HospitalMap = dynamic(() => import("@/app/components/HospitalMap"), {
   ssr: false,
@@ -139,9 +141,12 @@ function getTypeDot(clCdNm = "") {
 
 /* ── 컴포넌트 ─────────────────────────────────────── */
 export default function Dashboard() {
-  const [sidoCd, setSidoCd] = useState("110000");
-  const [sgguCd, setSgguCd] = useState("");
-  const [keyword, setKeyword] = useState("");
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const [sidoCd, setSidoCd] = useState(() => searchParams.get("sido") ?? "110000");
+  const [sgguCd, setSgguCd] = useState(() => searchParams.get("sggu") ?? "");
+  const [keyword, setKeyword] = useState(() => searchParams.get("q") ?? "");
   const [location, setLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [radius, setRadius] = useState("3000");
   const [hospitals, setHospitals] = useState<Hospital[]>([]);
@@ -157,11 +162,51 @@ export default function Dashboard() {
   const [answer, setAnswer] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
 
+  const [interests, setInterests] = useState<string[]>([]);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [onboardMounted, setOnboardMounted] = useState(false);
+
   const sgguOptions = sgguMap[sidoCd] ?? [];
   const selectedSido = sidoOptions.find(o => o.code === sidoCd)?.name ?? "";
 
-  /* 첫 로드 시 자동 위치 요청 */
+  /* 온보딩 여부 확인 */
   useEffect(() => {
+    setOnboardMounted(true);
+    const done = localStorage.getItem("geongangieum_onboarded");
+    if (!done) {
+      setShowOnboarding(true);
+    } else {
+      const saved = JSON.parse(done) as { sidoCd?: string; sgguCd?: string; interests?: string[] };
+      if (saved.sidoCd) setSidoCd(saved.sidoCd);
+      if (saved.sgguCd) setSgguCd(saved.sgguCd);
+      if (saved.interests) setInterests(saved.interests);
+    }
+  }, []);
+
+  /* 온보딩 완료 핸들러 */
+  function handleOnboardDone(result: OnboardResult) {
+    localStorage.setItem("geongangieum_onboarded", JSON.stringify({
+      sidoCd: result.sidoCd,
+      sgguCd: result.sgguCd,
+      interests: result.interests,
+    }));
+    setSidoCd(result.sidoCd);
+    setSgguCd(result.sgguCd);
+    setInterests(result.interests);
+    if (result.useGps) {
+      navigator.geolocation.getCurrentPosition(
+        pos => setLocation({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+        () => {},
+        { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 }
+      );
+    }
+    setShowOnboarding(false);
+  }
+
+  /* 첫 로드 시 자동 위치 요청 — 온보딩 이미 완료한 경우에만 */
+  useEffect(() => {
+    const done = localStorage.getItem("geongangieum_onboarded");
+    if (!done) return;
     if (typeof navigator === "undefined" || !navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(
       pos => setLocation({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
@@ -169,6 +214,18 @@ export default function Dashboard() {
       { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 }
     );
   }, []);
+
+  /* URL 동기화 — GPS 모드일 때는 URL 업데이트 안 함 */
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) { isFirstRender.current = false; return; }
+    if (location) return;
+    const p = new URLSearchParams();
+    p.set("sido", sidoCd);
+    if (sgguCd) p.set("sggu", sgguCd);
+    if (keyword.trim()) p.set("q", keyword.trim());
+    router.replace(`?${p.toString()}`, { scroll: false });
+  }, [sidoCd, sgguCd, keyword, location, router]);
 
   /* 주 검색 fetch */
   useEffect(() => {
@@ -236,11 +293,25 @@ export default function Dashboard() {
     "390000": [33.4996, 126.5312], "410000": [36.4800, 127.2890],
   };
 
+  /* 병원 좌표 평균 → 시군구 선택 시 해당 지역 중심으로 지도 이동 */
+  const hospitalCenter = useMemo<[number, number] | null>(() => {
+    if (!sgguCd && !location) return null;
+    const valid = hospitals.filter(
+      h => h.XPos && h.YPos &&
+        !isNaN(parseFloat(h.YPos)) && parseFloat(h.YPos) > 30 && parseFloat(h.YPos) < 40
+    );
+    if (valid.length < 2) return null;
+    const lat = valid.reduce((s, h) => s + parseFloat(h.YPos!), 0) / valid.length;
+    const lng = valid.reduce((s, h) => s + parseFloat(h.XPos!), 0) / valid.length;
+    return [lat, lng];
+  }, [hospitals, sgguCd, location]);
+
   const mapCenter: [number, number] = location
     ? [location.latitude, location.longitude]
-    : (SIDO_CENTERS[sidoCd] ?? [36.5, 127.5]);
+    : hospitalCenter ?? (SIDO_CENTERS[sidoCd] ?? [36.5, 127.5]);
 
-  const mapZoom = location ? 14 : sidoCd === "110000" ? 12 : 10;
+  const METRO_SIDOS = new Set(["110000","210000","220000","230000","240000","250000","260000","410000"]);
+  const mapZoom = location ? 14 : sgguCd ? 14 : METRO_SIDOS.has(sidoCd) ? 12 : 10;
 
   const mainLabel = location
     ? `현재 위치 반경 ${Number(radius) / 1000}km`
@@ -257,7 +328,7 @@ export default function Dashboard() {
       const res = await fetch("/api/ai", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ question, context: { sido: mainLabel, totalCount, hospitals: hospitals.slice(0, 8) } }),
+        body: JSON.stringify({ question, context: { sido: mainLabel, totalCount, hospitals: hospitals.slice(0, 8), interests } }),
       });
       const data = await res.json() as { answer?: string; error?: string };
       if (!res.ok) throw new Error(data.error ?? "AI API 호출 실패");
@@ -280,6 +351,10 @@ export default function Dashboard() {
 
   return (
     <>
+      {onboardMounted && showOnboarding && (
+        <OnboardingModal onDone={handleOnboardDone} />
+      )}
+
       {isLoading && <div className="loading-bar" />}
 
       {/* ── 컴팩트 검색 바 ── */}
@@ -346,55 +421,72 @@ export default function Dashboard() {
         </div>
       </section>
 
-      {/* ── 지표 요약 스트립 ── */}
+      {/* ── 지표 요약 카드 ── */}
       <div className="stats-strip">
         <div className="inner">
           <div className="stats-row">
-            <div className="stat-item">
-              <span className="stat-label">총 의료기관</span>
-              <span className={`stat-value${isLoading ? " skeleton" : ""}`}>
-                {isLoading ? "—" : totalCount.toLocaleString()}
-                <span className="stat-unit">개</span>
-              </span>
+
+            <div className="stat-card">
+              <div className="stat-card-icon green"><Building2 size={16} /></div>
+              <div className="stat-card-body">
+                <span className="stat-card-label">총 의료기관</span>
+                <span className={`stat-card-value${isLoading ? " skeleton" : ""}`}>
+                  {isLoading ? "—" : totalCount.toLocaleString()}
+                  <span className="stat-card-unit">개</span>
+                </span>
+              </div>
             </div>
-            <div className="stat-divider" />
-            <div className="stat-item">
-              <span className="stat-label">의사 수 합계</span>
-              <span className={`stat-value${isLoading ? " skeleton" : ""}`}>
-                {isLoading ? "—" : doctorCount.toLocaleString()}
-                <span className="stat-unit">명</span>
-              </span>
+
+            <div className="stat-card">
+              <div className="stat-card-icon blue"><Stethoscope size={16} /></div>
+              <div className="stat-card-body">
+                <span className="stat-card-label">의사 수</span>
+                <span className={`stat-card-value${isLoading ? " skeleton" : ""}`}>
+                  {isLoading ? "—" : doctorCount.toLocaleString()}
+                  <span className="stat-card-unit">명</span>
+                </span>
+              </div>
             </div>
-            <div className="stat-divider" />
-            <div className="stat-item">
-              <span className="stat-label">상급·종합병원</span>
-              <span className={`stat-value${isLoading ? " skeleton" : ""}`}>
-                {isLoading ? "—" : upperCount}
-                <span className="stat-unit">개</span>
-              </span>
+
+            <div className="stat-card">
+              <div className="stat-card-icon purple"><HeartPulse size={16} /></div>
+              <div className="stat-card-body">
+                <span className="stat-card-label">상급·종합병원</span>
+                <span className={`stat-card-value${isLoading ? " skeleton" : ""}`}>
+                  {isLoading ? "—" : upperCount}
+                  <span className="stat-card-unit">개</span>
+                </span>
+              </div>
             </div>
-            <div className="stat-divider" />
-            <div className="stat-item">
-              <span className="stat-label">의료 접근성</span>
-              {isLoading
-                ? <span className="stat-value skeleton">—</span>
-                : (
-                  <span className="stat-value">
-                    {vulnerability.score}점
-                    <span className={`badge ${vulnerability.grade}`} style={{ marginLeft: 6 }}>
-                      {vulnerability.label}
+
+            <div className="stat-card">
+              <div className={`stat-card-icon ${isLoading ? "green" : vulnerability.grade}`}>
+                <Activity size={16} />
+              </div>
+              <div className="stat-card-body">
+                <span className="stat-card-label">의료 접근성</span>
+                {isLoading
+                  ? <span className="stat-card-value skeleton">—</span>
+                  : <span className="stat-card-value">
+                      {vulnerability.score}점
+                      <span className={`badge ${vulnerability.grade}`} style={{ marginLeft: 6, fontSize: 11 }}>
+                        {vulnerability.label}
+                      </span>
                     </span>
-                  </span>
-                )
-              }
+                }
+              </div>
             </div>
-            <div className="stat-divider" />
-            <div className="stat-item">
-              <span className="stat-label">조회 기준</span>
-              <span className="stat-value stat-region">
-                {isLoading ? "—" : mainLabel}
-              </span>
+
+            <div className="stat-card stat-card-region">
+              <div className="stat-card-icon muted"><MapPin size={16} /></div>
+              <div className="stat-card-body">
+                <span className="stat-card-label">조회 기준</span>
+                <span className="stat-card-value stat-card-region-value">
+                  {isLoading ? "—" : mainLabel}
+                </span>
+              </div>
             </div>
+
           </div>
         </div>
       </div>
