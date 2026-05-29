@@ -1445,6 +1445,77 @@ a { color: inherit; text-decoration: none; }
 /* ── AI 블록 여백 ────────────────────────── */
 .ai-block { margin-bottom: 60px; }
 
+/* ── AI 채팅 버블 ────────────────────────── */
+.ai-chat-body {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.ai-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 12px 4px;
+}
+
+.ai-msg {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.ai-msg-user { flex-direction: row-reverse; }
+
+.ai-msg-avatar {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--green-soft);
+  color: var(--green);
+  display: grid;
+  place-items: center;
+  margin-bottom: 2px;
+}
+
+.ai-bubble {
+  max-width: 85%;
+  padding: 8px 12px;
+  border-radius: 14px;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ai-msg-user .ai-bubble {
+  background: var(--green);
+  color: white;
+  border-bottom-right-radius: 4px;
+}
+
+.ai-msg-assistant .ai-bubble {
+  background: var(--surface-2);
+  color: var(--ink);
+  border-bottom-left-radius: 4px;
+}
+
+.ai-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 14px;
+  background: var(--green);
+  border-radius: 1px;
+  animation: ai-blink 1s step-end infinite;
+  vertical-align: middle;
+}
+
+@keyframes ai-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
 /* ── 온보딩 모달 ─────────────────────────── */
 .onboard-backdrop {
   position: fixed;
